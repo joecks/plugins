@@ -370,13 +370,13 @@ class CameraController extends ValueNotifier<CameraValue> {
     if (!value.isInitialized || _isDisposed) {
       throw CameraException(
         'Uninitialized CameraController.',
-        'takePicture was called on uninitialized CameraController',
+        'takeBracketingPictures was called on uninitialized CameraController',
       );
     }
     if (value.isTakingPicture) {
       throw CameraException(
         'Previous capture has not returned yet.',
-        'takePicture was called before the previous capture returned.',
+        'takeBracketingPictures was called before the previous capture returned.',
       );
     }
     try {
@@ -389,6 +389,50 @@ class CameraController extends ValueNotifier<CameraValue> {
       return result;
     } on PlatformException catch (e) {
       value = value.copyWith(isTakingPicture: false);
+      throw CameraException(e.code, e.message);
+    }
+  }
+
+  Future<void> startJpegSession() async {
+    if (!value.isInitialized || _isDisposed) {
+      throw CameraException(
+        'Uninitialized CameraController',
+        'startJpegSession was called on uninitialized CameraController.',
+      );
+    }
+    if (value.isTakingPicture) {
+      throw CameraException(
+        'Previous capture has not returned yet.',
+        'startJpegSession was called before the previous capture returned.',
+      );
+    }
+
+    try {
+      await _channel.invokeMethod<void>('startJpegSession');
+      value = value.copyWith(isStreamingImages: true);
+    } on PlatformException catch (e) {
+      throw CameraException(e.code, e.message);
+    }
+  }
+
+  Future<void> startRawSession() async {
+    if (!value.isInitialized || _isDisposed) {
+      throw CameraException(
+        'Uninitialized CameraController',
+        'startRawSession was called on uninitialized CameraController.',
+      );
+    }
+    if (value.isTakingPicture) {
+      throw CameraException(
+        'Previous capture has not returned yet.',
+        'startRawSession was called before the previous capture returned.',
+      );
+    }
+
+    try {
+      await _channel.invokeMethod<void>('startRawSession');
+      value = value.copyWith(isStreamingImages: true);
+    } on PlatformException catch (e) {
       throw CameraException(e.code, e.message);
     }
   }

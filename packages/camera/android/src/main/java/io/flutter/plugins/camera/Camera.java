@@ -14,6 +14,7 @@ import android.hardware.camera2.CameraMetadata;
 import android.hardware.camera2.CaptureFailure;
 import android.hardware.camera2.CaptureRequest;
 import android.hardware.camera2.CaptureResult;
+import android.hardware.camera2.DngCreator;
 import android.hardware.camera2.TotalCaptureResult;
 import android.hardware.camera2.params.StreamConfigurationMap;
 import android.media.CamcorderProfile;
@@ -61,6 +62,7 @@ public class Camera {
     private final boolean enableAudio;
 
     private CameraDevice cameraDevice;
+    private CameraCharacteristics cameraCharacteristics;
     private CameraCaptureSession cameraCaptureSession;
     private ImageReader pictureImageJpegReader;
     private ImageReader pictureImageRawReader;
@@ -74,6 +76,8 @@ public class Camera {
     private int currentOrientation = ORIENTATION_UNKNOWN;
     private int lastIso;
     private Long lastExposureTime;
+    private CaptureResult lastCaptureResult;
+    private long minFrameDuration;
 
     // Mirrors camera.dart
     public enum ResolutionPreset {
@@ -159,9 +163,20 @@ public class Camera {
                 ImageReader.newInstance(
                         captureSize.getWidth(), captureSize.getHeight(), ImageFormat.JPEG, 3);
 
-        pictureImageRawReader =
-                ImageReader.newInstance(
-                        captureSize.getWidth(), captureSize.getHeight(), ImageFormat.RAW_SENSOR, 3);
+        cameraCharacteristics = cameraManager.getCameraCharacteristics(cameraName);
+        StreamConfigurationMap configurationMap = cameraCharacteristics.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP);
+        Size[] rawSize = null;
+        if (configurationMap != null) {
+            rawSize = configurationMap.getOutputSizes(ImageFormat.RAW_SENSOR);
+            if (rawSize != null && rawSize.length > 0) {
+                minFrameDuration = configurationMap.getOutputMinFrameDuration(ImageFormat.RAW_SENSOR, rawSize[0]);
+                Log.d("CAMERA", "OutputSize: " + rawSize[0] + ", minSpeed: " + minFrameDuration);
+
+                pictureImageRawReader =
+                        ImageReader.newInstance(
+                                rawSize[0].getWidth(), rawSize[0].getHeight(), ImageFormat.RAW_SENSOR, 3);
+            }
+        }
 
         // Used to steam image byte data to dart side.
         imageStreamReader =
@@ -229,12 +244,30 @@ public class Camera {
                 null);
     }
 
-    private void writeToFile(ByteBuffer buffer, File file) throws IOException {
-        try (FileOutputStream outputStream = new FileOutputStream(file)) {
-            while (0 < buffer.remaining()) {
-                outputStream.getChannel().write(buffer);
+    private String writeToFile(Image image, String basePath) throws IOException {
+        if (image.getFormat() == ImageFormat.RAW_SENSOR) {
+            File file = new File(basePath + ".dng");
+            DngCreator dngCreator = new DngCreator(cameraCharacteristics, lastCaptureResult);
+            try (FileOutputStream stream = new FileOutputStream(file)) {
+                dngCreator.writeImage(stream, image);
+                return file.getPath();
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+        } else if (image.getFormat() == ImageFormat.JPEG) {
+            File file = new File(basePath + ".jpg");
+
+            try (FileOutputStream outputStream = new FileOutputStream(file)) {
+                ByteBuffer buffer = image.getPlanes()[0].getBuffer();
+                while (0 < buffer.remaining()) {
+                    outputStream.getChannel().write(buffer);
+                }
+                return file.getPath();
+            } catch (IOException e) {
+                e.printStackTrace();
             }
         }
+        return null;
     }
 
     SurfaceTextureEntry getFlutterTexture() {
@@ -250,12 +283,11 @@ public class Camera {
             return;
         }
 
-        pictureImageJpegReader.setOnImageAvailableListener(
+        currentReader.setOnImageAvailableListener(
                 reader -> {
                     try (Image image = reader.acquireLatestImage()) {
-                        ByteBuffer buffer = image.getPlanes()[0].getBuffer();
-                        writeToFile(buffer, file);
-                        result.success(file.getPath());
+                        String path = writeToFile(image, filePath);
+                        result.success(path);
                     } catch (IOException e) {
                         result.error("IOError", "Failed saving image", null);
                     }
@@ -265,8 +297,9 @@ public class Camera {
         try {
             final CaptureRequest.Builder captureBuilder =
                     cameraDevice.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE);
-            captureBuilder.addTarget(pictureImageJpegReader.getSurface());
+            captureBuilder.addTarget(currentReader.getSurface());
             captureBuilder.set(CaptureRequest.JPEG_ORIENTATION, getMediaOrientation());
+            captureBuilder.set(CaptureRequest.JPEG_QUALITY, (byte) 100);
 
             cameraCaptureSession.capture(
                     captureBuilder.build(),
@@ -339,14 +372,13 @@ public class Camera {
     }
 
     private List<CaptureRequest> createFixedIsoBracketingReaderSession(String basePath, @NonNull Result result) throws CameraAccessException {
-        CameraCharacteristics characteristics = cameraManager.getCameraCharacteristics(cameraName);
-        Range<Long> exposureTimeRange = characteristics.get(CameraCharacteristics.SENSOR_INFO_EXPOSURE_TIME_RANGE);
+        Range<Long> exposureTimeRange = cameraCharacteristics.get(CameraCharacteristics.SENSOR_INFO_EXPOSURE_TIME_RANGE);
         List<CaptureRequest> captureList = new ArrayList<CaptureRequest>();
         int numberOfBursts = 3;
         long time = lastExposureTime;
         int iso = lastIso;
         for (int n = -1; n < numberOfBursts - 1; n++) {
-            long exposureTime = exposureTimeRange.clamp((long) (time * Math.pow(2, n * 1.3) ));
+            long exposureTime = exposureTimeRange.clamp((long) (time * Math.pow(2, n * 1.3)));
             Log.d("CAMERA", exposureTimeRange + " possible, selected " + exposureTime + " and iso: " + iso + ", current time + " + time);
             CaptureRequest.Builder captureBuilder = createManualCompansationBuilder(iso, exposureTime);
             captureList.add(captureBuilder.build());
@@ -358,7 +390,7 @@ public class Camera {
 
         currentReader.setOnImageAvailableListener(
                 reader -> {
-                    try (Image image = reader.acquireLatestImage()) {
+                    try (Image image = reader.acquireNextImage()) {
 
                         if (firstShot.get() == 0) {
                             firstShot.set(System.currentTimeMillis());
@@ -366,12 +398,9 @@ public class Camera {
 
                         int i = index.getAndIncrement();
                         Log.d("CAMERA", System.currentTimeMillis() - firstShot.get() + "msec for " + i + " before writing");
-
-                        ByteBuffer buffer = image.getPlanes()[0].getBuffer();
-                        File file = new File(basePath + "_" + (i + 1) + ".jpg");
-                        Log.d("CAMERA", "Try to save to " + file.getPath());
-                        writeToFile(buffer, file);
-                        paths.add(file.getPath());
+                        String path = writeToFile(image, basePath + "_" + (i + 1) + ".jpg");
+                        Log.d("CAMERA", "Wrote to " + path);
+                        paths.add(path);
 
                         Log.d("CAMERA", System.currentTimeMillis() - firstShot.get() + "msec for " + i + " after writing");
                         if (i == captureList.size() - 1) {
@@ -404,7 +433,7 @@ public class Camera {
 
         currentReader.setOnImageAvailableListener(
                 reader -> {
-                    try (Image image = reader.acquireLatestImage()) {
+                    try (Image image = reader.acquireNextImage()) {
 
                         if (firstShot.get() == 0) {
                             firstShot.set(System.currentTimeMillis());
@@ -418,11 +447,9 @@ public class Camera {
                             return;
                         }
 
-                        ByteBuffer buffer = image.getPlanes()[0].getBuffer();
-                        File file = new File(basePath + "_" + i + ".jpg");
-                        Log.d("CAMERA", "Try to save to " + file.getPath());
-                        writeToFile(buffer, file);
-                        paths.add(file.getPath());
+                        String path = writeToFile(image, basePath + "_" + i);
+                        Log.d("CAMERA", "Wrote to" + path);
+                        paths.add(path);
 
                         Log.d("CAMERA", System.currentTimeMillis() - firstShot.get() + "msec for " + i + " after writing");
                         if (i == captureList.size() - 1) {
@@ -430,6 +457,7 @@ public class Camera {
                         }
 
                     } catch (Exception e) {
+                        e.printStackTrace();
                         result.error("IOError", "Failed saving image", null);
                     }
                 },
@@ -439,9 +467,8 @@ public class Camera {
     }
 
     private List<Integer> createAeCompensations() throws CameraAccessException {
-        CameraCharacteristics characteristics = cameraManager.getCameraCharacteristics(cameraName);
-        Range<Integer> range = characteristics.get(CameraCharacteristics.CONTROL_AE_COMPENSATION_RANGE);
-        final double step = characteristics.get(CameraCharacteristics.CONTROL_AE_COMPENSATION_STEP).doubleValue();
+        Range<Integer> range = cameraCharacteristics.get(CameraCharacteristics.CONTROL_AE_COMPENSATION_RANGE);
+        final double step = cameraCharacteristics.get(CameraCharacteristics.CONTROL_AE_COMPENSATION_STEP).doubleValue();
 
 
         List<Integer> aeCompensations = new ArrayList();
@@ -458,6 +485,7 @@ public class Camera {
     private CaptureRequest.Builder createAECompansationBuilder(int aeCompensation) throws CameraAccessException {
         CaptureRequest.Builder captureBuilder =
                 cameraDevice.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE);
+        captureBuilder.set(CaptureRequest.SENSOR_FRAME_DURATION, minFrameDuration);
         captureBuilder.set(CaptureRequest.LENS_OPTICAL_STABILIZATION_MODE, CaptureRequest.LENS_OPTICAL_STABILIZATION_MODE_ON);
         captureBuilder.set(CaptureRequest.JPEG_QUALITY, (byte) 100);
         captureBuilder.set(CaptureRequest.JPEG_ORIENTATION, getMediaOrientation());
@@ -469,6 +497,7 @@ public class Camera {
     private CaptureRequest.Builder createManualCompansationBuilder(int iso, long exposureTime) throws CameraAccessException {
         CaptureRequest.Builder captureBuilder =
                 cameraDevice.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE);
+        captureBuilder.set(CaptureRequest.SENSOR_FRAME_DURATION, minFrameDuration);
         captureBuilder.set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_OFF);
         captureBuilder.set(CaptureRequest.SENSOR_EXPOSURE_TIME, exposureTime);
         captureBuilder.set(CaptureRequest.SENSOR_SENSITIVITY, iso);
@@ -525,6 +554,7 @@ public class Camera {
                             cameraCaptureSession.setRepeatingRequest(captureRequestBuilder.build(), new CameraCaptureSession.CaptureCallback() {
                                 @Override
                                 public void onCaptureCompleted(@NonNull CameraCaptureSession session, @NonNull CaptureRequest request, @NonNull TotalCaptureResult result) {
+                                    lastCaptureResult = result;
                                     lastExposureTime = result.get(CaptureResult.SENSOR_EXPOSURE_TIME);
                                     lastIso = result.get(CaptureResult.SENSOR_SENSITIVITY);
                                 }

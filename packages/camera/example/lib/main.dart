@@ -43,6 +43,9 @@ class _CameraExampleHomeState extends State<CameraExampleHome>
   VideoPlayerController videoController;
   VoidCallback videoPlayerListener;
   bool enableAudio = true;
+  bool enableDNG = false;
+  bool enableAE = true;
+  bool enableBrk = false;
 
   @override
   void initState() {
@@ -153,6 +156,34 @@ class _CameraExampleHomeState extends State<CameraExampleHome>
               }
             },
           ),
+          const Text('DNG:'),
+          Switch(
+            value: enableDNG,
+            onChanged: (bool value) {
+              enableDNG = value;
+              if (controller != null) {
+                onNewCameraSelected(controller.description);
+              }
+            },
+          ),
+          const Text('BRK:'),
+          Switch(
+            value: enableBrk,
+            onChanged: (bool value) {
+              setState(() {
+                enableBrk = value;
+              });
+            },
+          ),
+          const Text('AE:'),
+          Switch(
+            value: enableAE,
+            onChanged: (bool value) {
+              setState(() {
+                enableAE = value;
+              });
+            },
+          )
         ],
       ),
     );
@@ -295,6 +326,7 @@ class _CameraExampleHomeState extends State<CameraExampleHome>
 
     try {
       await controller.initialize();
+      if (enableDNG) await controller.startRawSession();
     } on CameraException catch (e) {
       _showCameraException(e);
     }
@@ -452,8 +484,13 @@ class _CameraExampleHomeState extends State<CameraExampleHome>
     }
 
     try {
-      final results = await controller.takeBracketingPictures(filePath, false);
-      return results[1];
+      if (enableBrk) {
+        final results =
+            await controller.takeBracketingPictures(filePath, !enableAE);
+        return results[1];
+      } else {
+        return await controller.takePicture(filePath);
+      }
     } on CameraException catch (e) {
       _showCameraException(e);
       return null;
