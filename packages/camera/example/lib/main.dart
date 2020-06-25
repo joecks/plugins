@@ -281,7 +281,7 @@ class _CameraExampleHomeState extends State<CameraExampleHome>
     }
     controller = CameraController(
       cameraDescription,
-      ResolutionPreset.medium,
+      ResolutionPreset.max,
       enableAudio: enableAudio,
     );
 
@@ -309,10 +309,11 @@ class _CameraExampleHomeState extends State<CameraExampleHome>
       if (mounted) {
         setState(() {
           imagePath = filePath;
+
           videoController?.dispose();
           videoController = null;
         });
-        if (filePath != null) showInSnackBar('Picture saved to $filePath');
+        if (imagePath != null) showInSnackBar('Picture saved to $imagePath');
       }
     });
   }
@@ -443,7 +444,7 @@ class _CameraExampleHomeState extends State<CameraExampleHome>
     final Directory extDir = await getApplicationDocumentsDirectory();
     final String dirPath = '${extDir.path}/Pictures/flutter_test';
     await Directory(dirPath).create(recursive: true);
-    final String filePath = '$dirPath/${timestamp()}.jpg';
+    final String filePath = '$dirPath/${timestamp()}';
 
     if (controller.value.isTakingPicture) {
       // A capture is already pending, do nothing.
@@ -451,12 +452,12 @@ class _CameraExampleHomeState extends State<CameraExampleHome>
     }
 
     try {
-      await controller.takePicture(filePath);
+      final results = await controller.takeBracketingPictures(filePath, false);
+      return results[1];
     } on CameraException catch (e) {
       _showCameraException(e);
       return null;
     }
-    return filePath;
   }
 
   void _showCameraException(CameraException e) {

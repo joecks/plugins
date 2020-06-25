@@ -339,7 +339,7 @@ class CameraController extends ValueNotifier<CameraValue> {
   /// The file can be read as this function returns.
   ///
   /// Throws a [CameraException] if the capture fails.
-  Future<void> takePicture(String path) async {
+  Future<String> takePicture(String path) async {
     if (!value.isInitialized || _isDisposed) {
       throw CameraException(
         'Uninitialized CameraController.',
@@ -354,11 +354,39 @@ class CameraController extends ValueNotifier<CameraValue> {
     }
     try {
       value = value.copyWith(isTakingPicture: true);
-      await _channel.invokeMethod<void>(
+      return await _channel.invokeMethod<String>(
         'takePicture',
         <String, dynamic>{'textureId': _textureId, 'path': path},
       );
       value = value.copyWith(isTakingPicture: false);
+    } on PlatformException catch (e) {
+      value = value.copyWith(isTakingPicture: false);
+      throw CameraException(e.code, e.message);
+    }
+  }
+
+
+  Future<List<dynamic>> takeBracketingPictures(String path, bool fixedIso) async {
+    if (!value.isInitialized || _isDisposed) {
+      throw CameraException(
+        'Uninitialized CameraController.',
+        'takePicture was called on uninitialized CameraController',
+      );
+    }
+    if (value.isTakingPicture) {
+      throw CameraException(
+        'Previous capture has not returned yet.',
+        'takePicture was called before the previous capture returned.',
+      );
+    }
+    try {
+      value = value.copyWith(isTakingPicture: true);
+      final result = await _channel.invokeMethod<List<dynamic>>(
+        'takeBracketingPictures',
+        <String, dynamic>{'textureId': _textureId, 'path': path, 'fixedIso' : fixedIso},
+      );
+      value = value.copyWith(isTakingPicture: false);
+      return result;
     } on PlatformException catch (e) {
       value = value.copyWith(isTakingPicture: false);
       throw CameraException(e.code, e.message);

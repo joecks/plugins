@@ -2,6 +2,9 @@ package io.flutter.plugins.camera;
 
 import android.app.Activity;
 import android.hardware.camera2.CameraAccessException;
+
+import java.util.Objects;
+
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import io.flutter.plugin.common.BinaryMessenger;
@@ -21,6 +24,10 @@ final class MethodCallHandlerImpl implements MethodChannel.MethodCallHandler {
   private final MethodChannel methodChannel;
   private final EventChannel imageStreamChannel;
   private @Nullable Camera camera;
+
+  enum  BracketingMode {
+    autoExposureCompensation, fixedIsoTimeCompensation
+  }
 
   MethodCallHandlerImpl(
       Activity activity,
@@ -77,6 +84,11 @@ final class MethodCallHandlerImpl implements MethodChannel.MethodCallHandler {
           camera.takePicture(call.argument("path"), result);
           break;
         }
+      case "takeBracketingPictures":
+      {
+        camera.takeBracketingPictures(call.argument("path"), Objects.equals(call.argument("fixedIso"), true) ? BracketingMode.fixedIsoTimeCompensation : BracketingMode.autoExposureCompensation, result);
+        break;
+      }
       case "prepareForVideoRecording":
         {
           // This optimization is not required for Android.
@@ -103,6 +115,24 @@ final class MethodCallHandlerImpl implements MethodChannel.MethodCallHandler {
           camera.resumeVideoRecording(result);
           break;
         }
+      case "startJpegSession" : {
+        try {
+          camera.startJpegPreview();
+          result.success(null);
+        } catch (Exception e) {
+          handleException(e, result);
+        }
+        break;
+      }
+      case "startRawSession" : {
+        try {
+          camera.startRawPreview();
+          result.success(null);
+        } catch (Exception e) {
+          handleException(e, result);
+        }
+        break;
+      }
       case "startImageStream":
         {
           try {
@@ -116,7 +146,7 @@ final class MethodCallHandlerImpl implements MethodChannel.MethodCallHandler {
       case "stopImageStream":
         {
           try {
-            camera.startPreview();
+            camera.startJpegPreview();
             result.success(null);
           } catch (Exception e) {
             handleException(e, result);
