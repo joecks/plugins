@@ -398,7 +398,7 @@ public class Camera {
 
                         int i = index.getAndIncrement();
                         Log.d("CAMERA", System.currentTimeMillis() - firstShot.get() + "msec for " + i + " before writing");
-                        String path = writeToFile(image, basePath + "_" + (i + 1) + ".jpg");
+                        String path = writeToFile(image, basePath + "_" + (i + 1));
                         Log.d("CAMERA", "Wrote to " + path);
                         paths.add(path);
 
