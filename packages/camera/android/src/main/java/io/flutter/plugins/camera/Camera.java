@@ -34,7 +34,6 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -60,6 +59,7 @@ public class Camera {
     private final Size captureSize;
     private final Size previewSize;
     private final boolean enableAudio;
+    private final CameraPropertiesMessenger propertiesMessenger;
 
     private CameraDevice cameraDevice;
     private CameraCharacteristics cameraCharacteristics;
@@ -74,7 +74,7 @@ public class Camera {
     private boolean recordingVideo;
     private CamcorderProfile recordingProfile;
     private int currentOrientation = ORIENTATION_UNKNOWN;
-    private int lastIso;
+    private Integer lastIso;
     private Long lastExposureTime;
     private CaptureResult lastCaptureResult;
     private long minFrameDuration;
@@ -93,6 +93,7 @@ public class Camera {
             final Activity activity,
             final SurfaceTextureEntry flutterTexture,
             final DartMessenger dartMessenger,
+            final CameraPropertiesMessenger propertiesMessenger,
             final String cameraName,
             final String resolutionPreset,
             final boolean enableAudio)
@@ -101,6 +102,7 @@ public class Camera {
             throw new IllegalStateException("No activity available!");
         }
 
+        this.propertiesMessenger = propertiesMessenger;
         this.cameraName = cameraName;
         this.enableAudio = enableAudio;
         this.flutterTexture = flutterTexture;
@@ -557,6 +559,7 @@ public class Camera {
                                     lastCaptureResult = result;
                                     lastExposureTime = result.get(CaptureResult.SENSOR_EXPOSURE_TIME);
                                     lastIso = result.get(CaptureResult.SENSOR_SENSITIVITY);
+                                    updateProperties(result);
                                 }
                             }, null);
                             if (onSuccessCallback != null) {
@@ -580,6 +583,12 @@ public class Camera {
         surfaceList.addAll(remainingSurfaces);
         // Start the session
         cameraDevice.createCaptureSession(surfaceList, callback, null);
+    }
+
+    private void updateProperties(TotalCaptureResult result) {
+        lastExposureTime = result.get(CaptureResult.SENSOR_EXPOSURE_TIME);
+        lastIso = result.get(CaptureResult.SENSOR_SENSITIVITY);
+        propertiesMessenger.send(lastIso, lastExposureTime);
     }
 
     public void startVideoRecording(String filePath, Result result) {

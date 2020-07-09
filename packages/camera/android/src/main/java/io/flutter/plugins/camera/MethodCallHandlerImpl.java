@@ -79,6 +79,12 @@ final class MethodCallHandlerImpl implements MethodChannel.MethodCallHandler {
 
           break;
         }
+      case "listenToPhotoProperties":
+      {
+
+        camera.takePicture(call.argument("path"), result);
+        break;
+      }
       case "takePicture":
         {
           camera.takePicture(call.argument("path"), result);
@@ -178,11 +184,13 @@ final class MethodCallHandlerImpl implements MethodChannel.MethodCallHandler {
     TextureRegistry.SurfaceTextureEntry flutterSurfaceTexture =
         textureRegistry.createSurfaceTexture();
     DartMessenger dartMessenger = new DartMessenger(messenger, flutterSurfaceTexture.id());
+    CameraPropertiesMessenger propertiesMessenger = new CameraPropertiesMessenger(messenger, flutterSurfaceTexture.id());
     camera =
         new Camera(
             activity,
             flutterSurfaceTexture,
             dartMessenger,
+            propertiesMessenger,
             cameraName,
             resolutionPreset,
             enableAudio);

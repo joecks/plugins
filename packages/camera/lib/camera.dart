@@ -149,6 +149,13 @@ class CameraPreview extends StatelessWidget {
   }
 }
 
+class CameraProperties {
+  final int currentIso;
+  final int currentExposureTime;
+
+  CameraProperties(this.currentIso, this.currentExposureTime);
+}
+
 /// The state of a [CameraController].
 class CameraValue {
   const CameraValue({
@@ -296,6 +303,17 @@ class CameraController extends ValueNotifier<CameraValue> {
     return _creatingCompleter.future;
   }
 
+  Stream<CameraProperties> listenToProperties() {
+    if (!value.isInitialized) {
+      return null;
+    }
+
+    return EventChannel('flutter.io/cameraPlugin/cameraProperties$_textureId')
+        .receiveBroadcastStream()
+        .map<CameraProperties>((value) => CameraProperties(
+            int.tryParse(value["iso"]), int.tryParse(value["exposureTime"])));
+  }
+
   /// Prepare the capture session for video recording.
   ///
   /// Use of this method is optional, but it may be called for performance
@@ -365,8 +383,8 @@ class CameraController extends ValueNotifier<CameraValue> {
     }
   }
 
-
-  Future<List<dynamic>> takeBracketingPictures(String path, bool fixedIso) async {
+  Future<List<dynamic>> takeBracketingPictures(
+      String path, bool fixedIso) async {
     if (!value.isInitialized || _isDisposed) {
       throw CameraException(
         'Uninitialized CameraController.',
@@ -383,7 +401,11 @@ class CameraController extends ValueNotifier<CameraValue> {
       value = value.copyWith(isTakingPicture: true);
       final result = await _channel.invokeMethod<List<dynamic>>(
         'takeBracketingPictures',
-        <String, dynamic>{'textureId': _textureId, 'path': path, 'fixedIso' : fixedIso},
+        <String, dynamic>{
+          'textureId': _textureId,
+          'path': path,
+          'fixedIso': fixedIso
+        },
       );
       value = value.copyWith(isTakingPicture: false);
       return result;
