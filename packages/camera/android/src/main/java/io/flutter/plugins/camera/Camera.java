@@ -76,8 +76,26 @@ public class Camera {
     private int currentOrientation = ORIENTATION_UNKNOWN;
     private Integer lastIso;
     private Long lastExposureTime;
+    private boolean aeLock = false;
     private CaptureResult lastCaptureResult;
     private long minFrameDuration;
+
+    public void aeLock(boolean enabled, Result result) throws CameraAccessException {
+        if (aeLock == enabled) {
+            return;
+        }
+
+        aeLock = enabled;
+        if (currentReader == pictureImageJpegReader) {
+            startJpegPreview();
+        } else if (currentReader == pictureImageRawReader) {
+            startRawPreview();
+        } else if (currentReader == imageStreamReader) {
+            throw new RuntimeException("Currently not supporting ae lock with video streams");
+        }
+
+        result.success(aeLock);
+    }
 
     // Mirrors camera.dart
     public enum ResolutionPreset {
@@ -302,6 +320,13 @@ public class Camera {
             captureBuilder.addTarget(currentReader.getSurface());
             captureBuilder.set(CaptureRequest.JPEG_ORIENTATION, getMediaOrientation());
             captureBuilder.set(CaptureRequest.JPEG_QUALITY, (byte) 100);
+            if (aeLock && lastIso != null && lastExposureTime != null) {
+                captureBuilder.set(CaptureRequest.CONTROL_AE_MODE, CameraMetadata.CONTROL_AE_MODE_OFF);
+                captureBuilder.set(CaptureRequest.SENSOR_EXPOSURE_TIME, lastExposureTime);
+                captureBuilder.set(CaptureRequest.SENSOR_SENSITIVITY, lastIso);
+            } else {
+                captureBuilder.set(CaptureRequest.CONTROL_AE_MODE, CameraMetadata.CONTROL_AE_MODE_ON);
+            }
 
             cameraCaptureSession.capture(
                     captureBuilder.build(),
@@ -337,7 +362,7 @@ public class Camera {
 
             if (bracketingMode == BracketingMode.autoExposureCompensation) {
                 captureList = createAeCompensationReaderSession(basePath, result);
-            } else if (bracketingMode == BracketingMode.fixedIsoTimeCompensation) {
+            } else if (bracketingMode == BracketingMode.fixedIsoTimeCompensation || aeLock) {
                 captureList = createFixedIsoBracketingReaderSession(basePath, result);
             }
 
@@ -382,7 +407,7 @@ public class Camera {
         for (int n = -1; n < numberOfBursts - 1; n++) {
             long exposureTime = exposureTimeRange.clamp((long) (time * Math.pow(2, n * 1.3)));
             Log.d("CAMERA", exposureTimeRange + " possible, selected " + exposureTime + " and iso: " + iso + ", current time + " + time);
-            CaptureRequest.Builder captureBuilder = createManualCompansationBuilder(iso, exposureTime);
+            CaptureRequest.Builder captureBuilder = createManualCompensationBuilder(iso, exposureTime);
             captureList.add(captureBuilder.build());
         }
 
@@ -496,7 +521,7 @@ public class Camera {
         return captureBuilder;
     }
 
-    private CaptureRequest.Builder createManualCompansationBuilder(int iso, long exposureTime) throws CameraAccessException {
+    private CaptureRequest.Builder createManualCompensationBuilder(int iso, long exposureTime) throws CameraAccessException {
         CaptureRequest.Builder captureBuilder =
                 cameraDevice.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE);
         captureBuilder.set(CaptureRequest.SENSOR_FRAME_DURATION, minFrameDuration);
@@ -529,6 +554,13 @@ public class Camera {
         SurfaceTexture surfaceTexture = flutterTexture.surfaceTexture();
         surfaceTexture.setDefaultBufferSize(previewSize.getWidth(), previewSize.getHeight());
         Surface flutterSurface = new Surface(surfaceTexture);
+        if (aeLock && lastIso != null && lastExposureTime != null) {
+            captureRequestBuilder.set(CaptureRequest.CONTROL_AE_MODE, CameraMetadata.CONTROL_AE_MODE_OFF);
+            captureRequestBuilder.set(CaptureRequest.SENSOR_EXPOSURE_TIME, lastExposureTime);
+            captureRequestBuilder.set(CaptureRequest.SENSOR_SENSITIVITY, lastIso);
+        } else {
+            captureRequestBuilder.set(CaptureRequest.CONTROL_AE_MODE, CameraMetadata.CONTROL_AE_MODE_ON);
+        }
         captureRequestBuilder.addTarget(flutterSurface);
 
         List<Surface> remainingSurfaces = Arrays.asList(surfaces);
@@ -586,9 +618,13 @@ public class Camera {
     }
 
     private void updateProperties(TotalCaptureResult result) {
-        lastExposureTime = result.get(CaptureResult.SENSOR_EXPOSURE_TIME);
-        lastIso = result.get(CaptureResult.SENSOR_SENSITIVITY);
-        propertiesMessenger.send(lastIso, lastExposureTime);
+        if (!aeLock) {
+            lastExposureTime = result.get(CaptureResult.SENSOR_EXPOSURE_TIME);
+            lastIso = result.get(CaptureResult.SENSOR_SENSITIVITY);
+            if (lastExposureTime != null && lastIso != null) {
+                propertiesMessenger.send(lastIso, lastExposureTime);
+            }
+        }
     }
 
     public void startVideoRecording(String filePath, Result result) {

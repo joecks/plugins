@@ -85,6 +85,16 @@ final class MethodCallHandlerImpl implements MethodChannel.MethodCallHandler {
         camera.takePicture(call.argument("path"), result);
         break;
       }
+      case "aeLock":
+      {
+        try {
+          Boolean enable = call.argument("enable");
+          camera.aeLock(enable != null ? enable : false, result);
+        } catch (Exception e) {
+          handleException(e, result);
+        }
+        break;
+      }
       case "takePicture":
         {
           camera.takePicture(call.argument("path"), result);

@@ -153,6 +153,9 @@ class CameraProperties {
   final int currentIso;
   final int currentExposureTime;
 
+  int get humanRedableExposureTime =>
+      (1000000000 / currentExposureTime).round();
+
   CameraProperties(this.currentIso, this.currentExposureTime);
 }
 
@@ -303,7 +306,7 @@ class CameraController extends ValueNotifier<CameraValue> {
     return _creatingCompleter.future;
   }
 
-  Stream<CameraProperties> listenToProperties() {
+  Stream<CameraProperties> cameraProperties() {
     if (!value.isInitialized) {
       return null;
     }
@@ -411,6 +414,28 @@ class CameraController extends ValueNotifier<CameraValue> {
       return result;
     } on PlatformException catch (e) {
       value = value.copyWith(isTakingPicture: false);
+      throw CameraException(e.code, e.message);
+    }
+  }
+
+  Future<bool> setAeLock(bool enabled) async {
+    if (!value.isInitialized || _isDisposed) {
+      throw CameraException(
+        'Uninitialized CameraController',
+        'setAeLock was called on uninitialized CameraController.',
+      );
+    }
+    if (value.isTakingPicture) {
+      throw CameraException(
+        'Previous capture has not returned yet.',
+        'setAeLock was called before the previous capture returned.',
+      );
+    }
+
+    try {
+      return await _channel
+          .invokeMethod<bool>('aeLock', <String, dynamic>{"enable": enabled});
+    } on PlatformException catch (e) {
       throw CameraException(e.code, e.message);
     }
   }
