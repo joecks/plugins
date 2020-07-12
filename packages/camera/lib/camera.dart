@@ -375,11 +375,12 @@ class CameraController extends ValueNotifier<CameraValue> {
     }
     try {
       value = value.copyWith(isTakingPicture: true);
-      return await _channel.invokeMethod<String>(
+      final returnValue =  await _channel.invokeMethod<String>(
         'takePicture',
         <String, dynamic>{'textureId': _textureId, 'path': path},
       );
       value = value.copyWith(isTakingPicture: false);
+      return returnValue;
     } on PlatformException catch (e) {
       value = value.copyWith(isTakingPicture: false);
       throw CameraException(e.code, e.message);
