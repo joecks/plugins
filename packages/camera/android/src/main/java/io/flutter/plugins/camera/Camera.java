@@ -360,7 +360,7 @@ public class Camera {
         try {
             List<CaptureRequest> captureList = null;
 
-            if (bracketingMode == BracketingMode.autoExposureCompensation) {
+            if (bracketingMode == BracketingMode.autoExposureCompensation && !aeLock) {
                 captureList = createAeCompensationReaderSession(basePath, result);
             } else if (bracketingMode == BracketingMode.fixedIsoTimeCompensation || aeLock) {
                 captureList = createFixedIsoBracketingReaderSession(basePath, result);
@@ -448,9 +448,9 @@ public class Camera {
         List<CaptureRequest> captureList = new ArrayList<CaptureRequest>();
         List<Integer> aeCompensations = createAeCompensations();
         // first frame will be discarded
-        captureList.add(createAECompansationBuilder(0).build());
+        captureList.add(createAECompensationBuilder(0).build());
         for (int aeCompensation : aeCompensations) {
-            CaptureRequest.Builder captureBuilder = createAECompansationBuilder(aeCompensation);
+            CaptureRequest.Builder captureBuilder = createAECompensationBuilder(aeCompensation);
             captureList.add(captureBuilder.build());
         }
 
@@ -493,7 +493,7 @@ public class Camera {
         return captureList;
     }
 
-    private List<Integer> createAeCompensations() throws CameraAccessException {
+    private List<Integer> createAeCompensations() {
         Range<Integer> range = cameraCharacteristics.get(CameraCharacteristics.CONTROL_AE_COMPENSATION_RANGE);
         final double step = cameraCharacteristics.get(CameraCharacteristics.CONTROL_AE_COMPENSATION_STEP).doubleValue();
 
@@ -509,7 +509,7 @@ public class Camera {
         return aeCompensations;
     }
 
-    private CaptureRequest.Builder createAECompansationBuilder(int aeCompensation) throws CameraAccessException {
+    private CaptureRequest.Builder createAECompensationBuilder(int aeCompensation) throws CameraAccessException {
         CaptureRequest.Builder captureBuilder =
                 cameraDevice.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE);
         captureBuilder.set(CaptureRequest.SENSOR_FRAME_DURATION, minFrameDuration);

@@ -154,7 +154,7 @@ class CameraProperties {
   final int currentExposureTime;
 
   int get humanRedableExposureTime =>
-      (1000000000 / currentExposureTime).round();
+     currentExposureTime == 0 ? 0 : (1000000000 / currentExposureTime).round();
 
   CameraProperties(this.currentIso, this.currentExposureTime);
 }
